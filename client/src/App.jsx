@@ -254,14 +254,14 @@ export default function App() {
           setLogs(prev => [...prev, logItem]);
           setRuns(prev => prev.map(run => run.id === logItem.runId
             ? {
-                ...run,
-                logs: [...(run.logs || []), logItem],
-                contextFiles: logItem.meta?.ranked || run.contextFiles,
-                plan: logItem.meta?.plan || run.plan,
-                codeChanges: logItem.meta?.codeChanges
-                  ? [...(run.codeChanges || []), ...logItem.meta.codeChanges]
-                  : run.codeChanges
-              }
+              ...run,
+              logs: [...(run.logs || []), logItem],
+              contextFiles: logItem.meta?.ranked || run.contextFiles,
+              plan: logItem.meta?.plan || run.plan,
+              codeChanges: logItem.meta?.codeChanges
+                ? [...(run.codeChanges || []), ...logItem.meta.codeChanges]
+                : run.codeChanges
+            }
             : run));
 
           if (logItem.meta?.ranked) {

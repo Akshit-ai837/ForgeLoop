@@ -130,7 +130,7 @@ app.put('/api/settings/model', (req, res) => {
   if (fs.existsSync(localEnvPath)) {
     try {
       currentEnv = fs.readFileSync(localEnvPath, 'utf8');
-    } catch (_) {}
+    } catch (_) { }
   }
 
   const envLines = new Map();
@@ -761,7 +761,7 @@ app.post('/api/agent/benchmark', async (req, res) => {
       try {
         const c = fs.readFileSync(path.join(resolvedPath, f.path), 'utf8');
         fullRepoContent += `\n--- FILE: ${f.path} ---\n${c}`;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const baselinePromptTokens = estimateTokens(`TASK: ${task}\n\nENTIRE REPOSITORY:\n${fullRepoContent}`);

@@ -15,17 +15,20 @@ export class Verifier {
     const testResult = options.testResult
       ? { result: options.testResult }
       : await this.toolManager.execute('run_tests');
+    const hasTestSuite = testResult.result?.hasTestSuite !== false;
     const testResultsParsed = (testResult.result?.totalCount || 0) > 0;
-    const testsPassed = (testResult.result?.passed ?? false) && testResultsParsed;
+    const testsPassed = hasTestSuite && (testResult.result?.passed ?? false) && testResultsParsed;
     const testRawOutput = testResult.result?.rawOutput || testResult.result?.stdout || '';
 
     checklist.push({
       id: 'tests_passed',
-      label: 'Automated test suite passed',
+      label: hasTestSuite ? 'Automated test suite passed' : 'No test suite detected',
       status: testsPassed ? 'PASS' : 'FAIL',
-      detail: testResultsParsed
-        ? `${testResult.result?.passedCount || 0}/${testResult.result?.totalCount || 0} tests passed, ${testResult.result?.failedCount || 0} failed, ${testResult.result?.skippedCount || 0} skipped`
-        : `No test results could be parsed from ${testResult.result?.command || 'the repository test command'}`
+      detail: !hasTestSuite
+        ? 'No test suite detected in repository'
+        : (testResultsParsed
+          ? `${testResult.result?.passedCount || 0}/${testResult.result?.totalCount || 0} tests passed, ${testResult.result?.failedCount || 0} failed, ${testResult.result?.skippedCount || 0} skipped`
+          : `No test results could be parsed from ${testResult.result?.command || 'the repository test command'}`)
     });
 
     evidence.tests = {

@@ -75,8 +75,30 @@ export function runCommand(repoPath, command, options = {}) {
   });
 }
 
-export async function runTests(repoPath, testCmd = 'npm test') {
-  const result = await runCommand(repoPath, testCmd, { timeout: 35000 });
+export async function runTests(repoPath, testCmd = null) {
+  const cmd = testCmd || getConfiguredCheckCommand(repoPath, 'test');
+  if (!cmd) {
+    return {
+      command: null,
+      exitCode: 1,
+      stdout: '',
+      stderr: '',
+      durationMs: 0,
+      timedOut: false,
+      error: 'No test suite detected',
+      success: false,
+      type: 'TEST_RUN',
+      hasTestSuite: false,
+      passed: false,
+      passedCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+      totalCount: 0,
+      rawOutput: 'No test suite detected for repository'
+    };
+  }
+
+  const result = await runCommand(repoPath, cmd, { timeout: 35000 });
   const combinedOutput = `${result.stdout}\n${result.stderr}`;
 
   // Parse common test runner patterns (node --test, jest, mocha, vitest)
@@ -105,6 +127,7 @@ export async function runTests(repoPath, testCmd = 'npm test') {
   return {
     ...result,
     type: 'TEST_RUN',
+    hasTestSuite: true,
     passed,
     passedCount,
     failedCount,

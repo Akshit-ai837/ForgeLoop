@@ -58,7 +58,7 @@ export class ContextEngine {
    * Search before reading: Scans repository, scores relevance of every file,
    * generates explainable reasons for selection/avoidance, and tracks avoided files.
    */
-  async rankRepositoryContext(repoPath, taskDescription) {
+  async rankRepositoryContext(repoPath, taskDescription, options = {}) {
     const taskInfo = this.extractTaskKeywords(taskDescription);
     const files = await listFiles(repoPath);
 
@@ -67,6 +67,7 @@ export class ContextEngine {
       this.tokenManager.recordFileSearch(files.length);
     }
 
+    const hintFile = options.hintFile || options.file || null;
     const scoredFiles = [];
     const fileContents = new Map();
 
@@ -75,6 +76,15 @@ export class ContextEngine {
       const lowerPath = relPath.toLowerCase();
       const reasons = [];
       let score = 5; // baseline small score
+
+      // Prioritize hint file if specified
+      if (hintFile) {
+        const normalizedHint = hintFile.replace(/^[./\\]+/, '').toLowerCase();
+        if (lowerPath === normalizedHint || lowerPath.endsWith(normalizedHint)) {
+          score += 65;
+          reasons.unshift(`Specified initial hint file: '${hintFile}'`);
+        }
+      }
 
       // 1. Check path matches
       for (const kw of taskInfo.keywords) {
@@ -219,16 +229,11 @@ export class ContextEngine {
    */
   async extractTargetContext(repoPath, rankedContext) {
     const contextItems = [];
-    let fullRepoContentCombined = '';
 
-    // First load total repo content to accurately calculate baseline tokens
+    // Calculate baseline repo tokens from file sizes efficiently without reading whole repository into memory
     const allFiles = await listFiles(repoPath);
-    for (const f of allFiles) {
-      try {
-        const c = fs.readFileSync(path.resolve(repoPath, f.path), 'utf8');
-        fullRepoContentCombined += `\n--- ${f.path} ---\n${c}`;
-      } catch (e) {}
-    }
+    const totalBytes = allFiles.reduce((acc, f) => acc + (f.size || 0), 0);
+    const baselineRepoTokens = Math.round(totalBytes / 3.8);
 
     // Now extract ONLY targeted files/sections
     for (const fileItem of rankedContext.selectedFiles) {
@@ -290,13 +295,13 @@ export class ContextEngine {
 
     if (this.tokenManager) {
       this.tokenManager.addTokens('context', contextTokens);
-      this.tokenManager.computeBaseline(fullRepoContentCombined, 2);
+      this.tokenManager.computeBaseline(baselineRepoTokens, 2);
     }
 
     return {
       items: contextItems,
       totalSelectedTokens: contextTokens,
-      baselineRepoTokens: estimateTokens(fullRepoContentCombined),
+      baselineRepoTokens,
       filesAvoidedCount: rankedContext.avoidedFiles.length,
       filesSelectedCount: contextItems.length
     };

@@ -102,7 +102,24 @@ export class Database {
         files_avoided INTEGER DEFAULT 0,
         FOREIGN KEY(run_id) REFERENCES runs(id)
       );
+
+      CREATE TABLE IF NOT EXISTS repositories (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        full_name TEXT,
+        path TEXT,
+        local_workspace TEXT,
+        url TEXT,
+        clone_url TEXT,
+        owner TEXT,
+        source TEXT DEFAULT 'local',
+        created_at TEXT NOT NULL
+      );
     `);
+
+    try {
+      this.db.exec('ALTER TABLE repositories ADD COLUMN path TEXT');
+    } catch (_) {}
   }
 
   createRun({ id, task, repository, status = 'RUNNING', currentStage = 'IDLE', createdAt = new Date().toISOString() }) {
@@ -348,6 +365,59 @@ export class Database {
         filesAvoided: metrics.files_avoided
       } : null
     };
+  }
+
+  saveRepository({ id, name, fullName = null, path: repoPath, url = null, source = 'local', createdAt = new Date().toISOString() }) {
+    try {
+      this.db.exec('ALTER TABLE repositories ADD COLUMN path TEXT');
+    } catch (_) {}
+
+    const full = fullName || name;
+    const owner = full.includes('/') ? full.split('/')[0] : 'local';
+    const finalUrl = url || `https://github.com/${full}`;
+    const cloneUrl = finalUrl.endsWith('.git') ? finalUrl : `${finalUrl}.git`;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO repositories (id, name, full_name, path, local_workspace, url, clone_url, owner, source, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(id, name, full, repoPath, repoPath, finalUrl, cloneUrl, owner, source, createdAt, createdAt);
+    return this.getRepositoryById(id);
+  }
+
+  getRepositoryById(id) {
+    const stmt = this.db.prepare('SELECT * FROM repositories WHERE id = ?');
+    const row = stmt.get(id);
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      fullName: row.full_name,
+      path: row.path,
+      url: row.url,
+      source: row.source,
+      createdAt: row.created_at
+    };
+  }
+
+  getRepositoryByFullName(fullName) {
+    const stmt = this.db.prepare('SELECT * FROM repositories WHERE full_name = ?');
+    const row = stmt.get(fullName);
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      fullName: row.full_name,
+      path: row.path,
+      url: row.url,
+      source: row.source,
+      createdAt: row.created_at
+    };
+  }
+
+  deleteRepository(id) {
+    const stmt = this.db.prepare('DELETE FROM repositories WHERE id = ?');
+    stmt.run(id);
   }
 
   getAllRuns(limit = 100) {

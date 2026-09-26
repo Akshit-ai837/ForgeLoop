@@ -2,8 +2,13 @@
   "name": "forgeloop-monorepo",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "ForgeLoop: Autonomous Coding Harness with Token-Efficient Self-Verification & Recovery",
+  "bin": {
+    "forgeloop": "./bin/forgeloop.js"
+  },
   "scripts": {
+    "forgeloop": "node ./bin/forgeloop.js",
     "start": "concurrently \"npm run start:server\" \"npm run start:client\"",
     "start:server": "npm --prefix server start",
     "start:client": "npm --prefix client run dev",

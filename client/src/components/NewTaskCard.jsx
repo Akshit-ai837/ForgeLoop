@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { 
-  FileText, 
-  FolderGit2, 
-  Cpu, 
-  SlidersHorizontal, 
-  Eraser, 
+import {
+  FileText,
+  FolderGit2,
+  Cpu,
+  SlidersHorizontal,
+  Eraser,
   Play,
   RotateCcw,
   Key
@@ -103,9 +103,8 @@ export default function NewTaskCard({
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors ${
-              showAdvanced ? 'text-blue-400 bg-blue-500/10 border border-blue-500/30' : 'text-slate-400 hover:text-slate-200'
-            }`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors ${showAdvanced ? 'text-blue-400 bg-blue-500/10 border border-blue-500/30' : 'text-slate-400 hover:text-slate-200'
+              }`}
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
             <span>Advanced Options</span>

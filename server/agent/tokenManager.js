@@ -120,7 +120,9 @@ export class TokenManager {
   computeBaseline(allRepoFilesContent = '', iterationsCount = 1) {
     // In naive/baseline architectures, the entire repository + conversation history
     // is repeatedly sent to the model on every single turn.
-    const entireRepoTokens = estimateTokens(allRepoFilesContent);
+    const entireRepoTokens = typeof allRepoFilesContent === 'number' 
+      ? allRepoFilesContent 
+      : estimateTokens(allRepoFilesContent);
     // Baseline dumps entire repo + task + instructions on initial plan, implementation, and every retry turn
     const baseTurns = Math.max(2, iterationsCount + 1);
     this.baselineTotalTokens = (entireRepoTokens + this.taskTokens) * baseTurns;

@@ -81,9 +81,9 @@ export class AgentOrchestrator {
     this.failureAnalyzer = new FailureAnalyzer();
     this.runData = {};
 
-    this.modelProvider = options.modelProvider && typeof options.modelProvider.generate === 'function'
+    this.modelProvider = options.modelProvider && typeof options.modelProvider === 'object'
       ? options.modelProvider
-      : ModelProviderFactory.create(options.modelProvider || 'deepseek', options.modelConfig || {});
+      : ModelProviderFactory.create(typeof options.modelProvider === 'string' ? options.modelProvider : 'deepseek', options.modelConfig || {});
 
     this.planner = new Planner({
       modelProvider: this.modelProvider,
@@ -150,7 +150,7 @@ export class AgentOrchestrator {
 
     this.stateManager.setState(AgentState.SEARCHING);
     this.stateManager.log('Searching repository files and references for this task.', 'info');
-    const rankedContext = await this.contextEngine.rankRepositoryContext(this.repoPath, taskDescription);
+    const rankedContext = await this.contextEngine.rankRepositoryContext(this.repoPath, taskDescription, options);
     this.runData.rankedContext = {
       totalFiles: rankedContext.totalFiles,
       scoredFiles: rankedContext.scoredFiles,

@@ -8,4 +8,6 @@ server/.env
 server/.env.local
 *.db
 *.db-journal
-demo-repos/**/.git
+workspace/repositories/
+*.db-wal
+*.db-shm

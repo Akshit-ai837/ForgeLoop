@@ -9,7 +9,9 @@ import { TokenManager } from '../agent/tokenManager.js';
 import { ToolManager } from '../tools/toolManager.js';
 import { Verifier } from '../agent/verifier.js';
 import { FailureAnalyzer } from '../agent/failureAnalyzer.js';
+import { AgentOrchestrator } from '../agent/orchestrator.js';
 import { ModelProviderFactory, DeepSeekProvider, QwenProvider } from '../services/modelProvider.js';
+import { RepositoryManager, detectRepositoryMetadata } from '../services/repositoryManager.js';
 import { db } from '../db/database.js';
 
 describe('ForgeLoop Evaluation-Ready Test Suite', { concurrency: 1 }, () => {
@@ -18,7 +20,7 @@ describe('ForgeLoop Evaluation-Ready Test Suite', { concurrency: 1 }, () => {
   before(() => {
     // Requirement 16: Create an isolated temporary fixture repository outside demo repositories
     tempRepoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-eval-fixture-'));
-    
+
     // Initialize temporary repository
     execSync('git init -b main', { cwd: tempRepoDir, stdio: 'ignore' });
     execSync('git config user.email "eval@forgeloop.test"', { cwd: tempRepoDir, stdio: 'ignore' });
@@ -64,7 +66,7 @@ test('auth with token', () => {
     if (tempRepoDir && fs.existsSync(tempRepoDir)) {
       try {
         fs.rmSync(tempRepoDir, { recursive: true, force: true });
-      } catch (_) {}
+      } catch (_) { }
     }
   });
 
@@ -128,7 +130,7 @@ test('auth with token', () => {
 
     assert.ok(ranked.totalFiles >= 3, 'Should discover repository files');
     assert.ok(ranked.selectedFiles.length >= 1, 'Should select candidate files');
-    
+
     // auth.js should rank highest for this authentication task
     const topScored = ranked.scoredFiles[0];
     assert.ok(topScored.path.includes('auth'), 'Top scored file should be relevant to authentication');
@@ -219,4 +221,386 @@ Received: false
     const stats = db.getDashboardStats();
     assert.ok(stats.totalRuns >= 1, 'Dashboard stats must reflect recorded runs');
   });
+
+  it('7. Repository Manager: GitHub URL validation & error handling', () => {
+    const testWs = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-rm-test-'));
+    try {
+      const rm = new RepositoryManager(testWs);
+
+      // Valid URL parsing
+      const parsed = rm.parseGitHubUrl('https://github.com/facebook/react');
+      assert.equal(parsed.owner, 'facebook');
+      assert.equal(parsed.name, 'react');
+      assert.equal(parsed.fullName, 'facebook/react');
+      assert.equal(parsed.cloneUrl, 'https://github.com/facebook/react.git');
+
+      // Valid with .git suffix and subpaths
+      const parsedWithGit = rm.parseGitHubUrl('https://github.com/torvalds/linux.git');
+      assert.equal(parsedWithGit.fullName, 'torvalds/linux');
+
+      // Invalid URLs
+      assert.throws(() => rm.parseGitHubUrl(''), /required/i);
+      assert.throws(() => rm.parseGitHubUrl('https://gitlab.com/owner/repo'), /Only GitHub/i);
+      assert.throws(() => rm.parseGitHubUrl('not-a-url'), /Invalid repository URL/i);
+      assert.throws(() => rm.parseGitHubUrl('https://github.com/onlyowner'), /Expected format/i);
+      assert.throws(() => rm.parseGitHubUrl('https://github.com/owner/repo/extra/parts'), /invalid characters|valid/i);
+    } finally {
+      try { fs.rmSync(testWs, { recursive: true, force: true }); } catch (_) {}
+    }
+  });
+
+  it('8. Repository Manager: Workspace isolation & path containment', () => {
+    const testWs = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-rm-iso-'));
+    try {
+      const rm = new RepositoryManager(testWs);
+
+      // Path within workspace should be accepted
+      const safePath = path.join(testWs, 'repo_123');
+      assert.equal(rm.assertSafeWorkspace(safePath), path.resolve(safePath));
+
+      // Path escaping workspace must throw security error
+      assert.throws(() => rm.assertSafeWorkspace(path.join(testWs, '..', 'evil')), /escapes workspace/i);
+      assert.throws(() => rm.assertSafeWorkspace('/etc/passwd'), /escapes workspace/i);
+      assert.throws(() => rm.assertSafeWorkspace(testWs), /escapes workspace/i);
+    } finally {
+      try { fs.rmSync(testWs, { recursive: true, force: true }); } catch (_) {}
+    }
+  });
+
+  it('9. Repository Persistence & Lookup without hardcoded dependencies', () => {
+    const testWs = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-rm-db-'));
+    try {
+      const rm = new RepositoryManager(testWs);
+      const testRepoId = 'repo_arbitrary_' + Date.now();
+
+      // Register local repository dynamically
+      const registered = rm.registerLocalPath(tempRepoDir, {
+        id: testRepoId,
+        name: 'arbitrary-service',
+        fullName: 'my-org/arbitrary-service',
+        url: 'https://github.com/my-org/arbitrary-service'
+      });
+
+      assert.equal(registered.id, testRepoId);
+      assert.equal(registered.name, 'arbitrary-service');
+      assert.equal(registered.fullName, 'my-org/arbitrary-service');
+
+      // Lookup by ID
+      const byId = rm.getRepo(testRepoId);
+      assert.ok(byId, 'Should lookup repository by ID');
+      assert.equal(byId.fullName, 'my-org/arbitrary-service');
+
+      // Lookup by full name
+      const byFullName = rm.getRepo('my-org/arbitrary-service');
+      assert.ok(byFullName, 'Should lookup repository by full name');
+
+      // Lookup in DB directly
+      const dbRecord = db.getRepositoryById(testRepoId);
+      assert.equal(dbRecord.name, 'arbitrary-service');
+      assert.equal(dbRecord.source, 'local');
+
+      // Deletion removes from DB
+      rm.deleteRepo(testRepoId);
+      assert.equal(rm.getRepo(testRepoId), null);
+    } finally {
+      try { fs.rmSync(testWs, { recursive: true, force: true }); } catch (_) {}
+    }
+  });
+
+  it('10. Agent & Tools operate on dynamically selected repository', async () => {
+    const toolManager = new ToolManager({ repoPath: tempRepoDir });
+    const outline = await toolManager.execute('get_repo_outline');
+    assert.ok(outline.success);
+
+    const metadata = detectRepositoryMetadata(tempRepoDir);
+    assert.equal(metadata.hasTestSuite, true);
+    assert.equal(metadata.testCommand, 'npm test');
+
+    const testRun = await toolManager.execute('run_tests');
+    assert.ok(testRun.success);
+    assert.equal(testRun.result.hasTestSuite, true);
+    assert.equal(testRun.result.passed, true);
+  });
+
+  it('11. Dynamic test detection handles repositories with no test suite', async () => {
+    const noTestRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-notest-'));
+    try {
+      fs.writeFileSync(path.join(noTestRepo, 'README.md'), '# Just docs\nNo code or tests here.');
+
+      const metadata = detectRepositoryMetadata(noTestRepo);
+      assert.equal(metadata.hasTestSuite, false);
+      assert.equal(metadata.testCommand, null);
+
+      const tm = new ToolManager({ repoPath: noTestRepo });
+      const testRun = await tm.execute('run_tests');
+      assert.equal(testRun.result.hasTestSuite, false);
+      assert.equal(testRun.result.passed, false);
+      assert.ok(testRun.result.rawOutput.includes('No test suite detected'));
+
+      const tmVer = new Verifier({ toolManager: tm });
+      const verification = await tmVer.verify('Add feature', ['README.md'], {
+        testResult: testRun.result,
+        changedFiles: ['README.md'],
+        diffData: { totalFilesChanged: 1, fileDiffs: [{ file: 'README.md' }] }
+      });
+      assert.equal(verification.verified, false, 'Should not claim verified when no test suite exists');
+      const testChecklist = verification.checklist.find(c => c.id === 'tests_passed');
+      assert.equal(testChecklist.label, 'No test suite detected');
+    } finally {
+      try { fs.rmSync(noTestRepo, { recursive: true, force: true }); } catch (_) {}
+    }
+  });
+
+it('12. Test A - Simple bug fix end-to-end (issue -> agent -> edit -> test -> verified)', async () => {
+  const tempA = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-test-a-'));
+  try {
+    execSync('git init -b main', { cwd: tempA, stdio: 'ignore' });
+    execSync('git config user.email "test@forgeloop.test"', { cwd: tempA, stdio: 'ignore' });
+    execSync('git config user.name "ForgeLoop Test"', { cwd: tempA, stdio: 'ignore' });
+
+    fs.writeFileSync(path.join(tempA, 'package.json'), JSON.stringify({
+      name: 'test-a-calc',
+      version: '1.0.0',
+      type: 'module',
+      scripts: { test: 'node --test' }
+    }, null, 2));
+
+    fs.mkdirSync(path.join(tempA, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tempA, 'src', 'calc.js'), `export function add(a, b) {\n  return a - b;\n}\n`);
+
+    fs.mkdirSync(path.join(tempA, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(tempA, 'test', 'calc.test.js'), `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { add } from '../src/calc.js';
+
+test('add should return sum', () => {
+  assert.equal(add(2, 3), 5);
 });
+`);
+
+    execSync('git add -A && git commit -m "init"', { cwd: tempA, stdio: 'ignore' });
+
+    const testModel = {
+      name: 'TestModelA',
+      async generatePlan() {
+        return { steps: ['Fix calculation in src/calc.js'], target_files: ['src/calc.js'] };
+      },
+      async generateImplementation() {
+        return {
+          actions: [
+            {
+              tool: 'edit_file',
+              file: 'src/calc.js',
+              targetContent: 'export function add(a, b) {\n  return a - b;\n}',
+              replacementContent: 'export function add(a, b) {\n  return a + b;\n}'
+            }
+          ]
+        };
+      }
+    };
+
+    const orchestrator = new AgentOrchestrator({ repoPath: tempA, modelProvider: testModel });
+    const result = await orchestrator.run('Fix add function in src/calc.js');
+
+    assert.equal(result.verification.verified, true);
+    assert.equal(result.verification.status, 'TASK_VERIFIED');
+    assert.ok(result.filesChanged.includes('src/calc.js'));
+    assert.equal(result.tests.passed, true);
+  } finally {
+    try { fs.rmSync(tempA, { recursive: true, force: true }); } catch (_) { }
+  }
+});
+
+it('13. Test B - Failure recovery loop (fail -> analyze -> recover -> retest -> verified)', async () => {
+  const tempB = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-test-b-'));
+  try {
+    execSync('git init -b main', { cwd: tempB, stdio: 'ignore' });
+    execSync('git config user.email "test@forgeloop.test"', { cwd: tempB, stdio: 'ignore' });
+    execSync('git config user.name "ForgeLoop Test"', { cwd: tempB, stdio: 'ignore' });
+
+    fs.writeFileSync(path.join(tempB, 'package.json'), JSON.stringify({
+      name: 'test-b-mult',
+      version: '1.0.0',
+      type: 'module',
+      scripts: { test: 'node --test' }
+    }, null, 2));
+
+    fs.mkdirSync(path.join(tempB, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tempB, 'src', 'mult.js'), `export function mult(a, b) {\n  return 0;\n}\n`);
+
+    fs.mkdirSync(path.join(tempB, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(tempB, 'test', 'mult.test.js'), `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mult } from '../src/mult.js';
+
+test('mult returns product', () => {
+  assert.equal(mult(3, 4), 12);
+});
+`);
+
+    execSync('git add -A && git commit -m "init"', { cwd: tempB, stdio: 'ignore' });
+
+    const testModel = {
+      name: 'TestModelB',
+      async generatePlan() {
+        return { steps: ['Fix mult function in src/mult.js'], target_files: ['src/mult.js'] };
+      },
+      async generateImplementation() {
+        // First attempt produces flawed edit
+        return {
+          actions: [
+            {
+              tool: 'edit_file',
+              file: 'src/mult.js',
+              targetContent: 'export function mult(a, b) {\n  return 0;\n}',
+              replacementContent: 'export function mult(a, b) {\n  return a + b;\n}'
+            }
+          ]
+        };
+      },
+      async analyzeFailure() {
+        return { likely_area: 'src/mult.js', file: 'src/mult.js', type: 'TEST_FAILURE' };
+      }
+    };
+
+    const recoveryEngineMock = {
+      async attemptRecovery() {
+        fs.writeFileSync(path.join(tempB, 'src', 'mult.js'), `export function mult(a, b) {\n  return a * b;\n}\n`);
+        return {
+          success: true,
+          appliedActions: [
+            {
+              action: { tool: 'edit_file', file: 'src/mult.js' },
+              result: { success: true, result: { success: true, modified: true } }
+            }
+          ]
+        };
+      }
+    };
+
+    const orchestrator = new AgentOrchestrator({ repoPath: tempB, modelProvider: testModel });
+    orchestrator.recoveryEngine = recoveryEngineMock;
+
+    const result = await orchestrator.run('Fix mult in src/mult.js');
+    assert.equal(result.verification.verified, true);
+    assert.equal(result.verification.status, 'TASK_VERIFIED');
+    assert.equal(result.tests.passed, true);
+  } finally {
+    try { fs.rmSync(tempB, { recursive: true, force: true }); } catch (_) { }
+  }
+});
+
+it('14. Test C - Context efficiency (avoids sending entire repository)', async () => {
+  const tempC = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-test-c-'));
+  try {
+    fs.mkdirSync(path.join(tempC, 'src', 'auth'), { recursive: true });
+    fs.mkdirSync(path.join(tempC, 'src', 'inventory'), { recursive: true });
+
+    fs.writeFileSync(path.join(tempC, 'src', 'auth', 'login.js'), `export function login() { return true; }\n`);
+    fs.writeFileSync(path.join(tempC, 'src', 'auth', 'auth.test.js'), `test('auth', () => {});\n`);
+
+    // Add 20 unrelated files
+    for (let i = 1; i <= 20; i++) {
+      fs.writeFileSync(path.join(tempC, 'src', 'inventory', `item_${i}.js`), `export const item${i} = ${i};\n`);
+    }
+
+    const tokenManager = new TokenManager();
+    const engine = new ContextEngine({ tokenManager });
+    const ranked = await engine.rankRepositoryContext(tempC, 'Fix authentication login session');
+    const targetContext = await engine.extractTargetContext(tempC, ranked);
+
+    assert.ok(ranked.totalFiles >= 20, 'Should find 20+ repository files');
+    assert.ok(targetContext.items.length <= 4, 'Should select minimal targeted files (<= 4)');
+    assert.ok(targetContext.filesAvoidedCount >= 16, 'Should avoid bulk of unrelated files (>= 16 avoided)');
+    assert.ok(targetContext.totalSelectedTokens < targetContext.baselineRepoTokens, 'Selected tokens must be less than baseline repo tokens');
+  } finally {
+    try { fs.rmSync(tempC, { recursive: true, force: true }); } catch (_) { }
+  }
+});
+
+it('15. Test D - Safety: Unrelated files outside the task remain completely untouched', async () => {
+  const tempD = fs.mkdtempSync(path.join(os.tmpdir(), 'forgeloop-test-d-'));
+  try {
+    execSync('git init -b main', { cwd: tempD, stdio: 'ignore' });
+    execSync('git config user.email "test@forgeloop.test"', { cwd: tempD, stdio: 'ignore' });
+    execSync('git config user.name "ForgeLoop Test"', { cwd: tempD, stdio: 'ignore' });
+
+    fs.writeFileSync(path.join(tempD, 'package.json'), JSON.stringify({
+      name: 'test-d-safety',
+      version: '1.0.0',
+      type: 'module',
+      scripts: { test: 'node --test' }
+    }, null, 2));
+
+    fs.mkdirSync(path.join(tempD, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tempD, 'src', 'secret.js'), `export const API_SECRET = 'DO_NOT_ALTER_PRESERVE_123';\n`);
+    fs.writeFileSync(path.join(tempD, 'src', 'target.js'), `export function fixMe() { return false; }\n`);
+
+    fs.mkdirSync(path.join(tempD, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(tempD, 'test', 'target.test.js'), `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { fixMe } from '../src/target.js';
+test('fixMe works', () => { assert.equal(fixMe(), true); });
+`);
+
+    execSync('git add -A && git commit -m "init"', { cwd: tempD, stdio: 'ignore' });
+
+    const testModel = {
+      name: 'TestModelD',
+      async generatePlan() {
+        return { steps: ['Fix target.js'], target_files: ['src/target.js'] };
+      },
+      async generateImplementation() {
+        return {
+          actions: [
+            {
+              tool: 'edit_file',
+              file: 'src/target.js',
+              targetContent: 'export function fixMe() { return false; }',
+              replacementContent: 'export function fixMe() { return true; }'
+            }
+          ]
+        };
+      }
+    };
+
+    const orchestrator = new AgentOrchestrator({ repoPath: tempD, modelProvider: testModel });
+    const result = await orchestrator.run('Fix target.js return value');
+
+    // Assert target file was changed
+    assert.ok(result.filesChanged.includes('src/target.js'));
+
+    // Assert unrelated file was completely preserved
+    const secretContent = fs.readFileSync(path.join(tempD, 'src', 'secret.js'), 'utf8');
+    assert.ok(secretContent.includes('DO_NOT_ALTER_PRESERVE_123'), 'Unrelated files must remain untouched');
+    assert.ok(!result.filesChanged.includes('src/secret.js'), 'Unrelated files must not be recorded as changed');
+  } finally {
+    try { fs.rmSync(tempD, { recursive: true, force: true }); } catch (_) { }
+  }
+});
+
+it('16. Test E - Missing API key returns MODEL NOT CONFIGURED', async () => {
+  const prevKey = process.env.AI_API_KEY;
+  const prevDsKey = process.env.DEEPSEEK_API_KEY;
+  try {
+    delete process.env.AI_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.MODEL_API_KEY;
+
+    const provider = ModelProviderFactory.create('deepseek', {});
+    const info = provider.getModelInfo();
+    assert.equal(info.isConfigured, false, 'Provider must report isConfigured=false when key is missing');
+    assert.ok(provider.getExpectedEnvKey().includes('AI_API_KEY'));
+
+    await assert.rejects(
+      async () => { await provider.generate('test prompt'); },
+      /is not configured|API key/i,
+      'Calling generate without API key must reject'
+    );
+  } finally {
+    if (prevKey) process.env.AI_API_KEY = prevKey;
+    if (prevDsKey) process.env.DEEPSEEK_API_KEY = prevDsKey;
+  }
+});
+});
+

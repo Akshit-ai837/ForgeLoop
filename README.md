@@ -149,11 +149,20 @@ Starts the ForgeLoop server on **`http://localhost:4000`** (serving both backend
 
 You can supply issues to ForgeLoop through any of the following 3 ways:
 
-#### A. Headless Evaluation CLI
+#### A. Terminal-First CLI (Primary Experience)
+In VS Code or terminal inside any repository:
 ```bash
-make eval TASK="Add pagination to the /api/products endpoint and update the tests" REPO="products-api"
-# Or directly:
-node server/cli.js --task "<issue_description>" --repo "<repo_name_or_path>"
+# 1. Primary command (current directory is target repository):
+forgeloop "Fix login returning 401"
+
+# 2. With optional initial file hint (agent still discovers all dependencies):
+forgeloop --file src/auth.js "Fix token expiry calculation"
+
+# 3. With explicit repository path:
+forgeloop --repo ./my-project "Add pagination to GET /api/items"
+
+# 4. Standard Makefile interface:
+make eval TASK="Add pagination to /api/products" [REPO=products-api]
 ```
 
 #### B. REST API

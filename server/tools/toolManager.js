@@ -97,7 +97,7 @@ export class ToolManager {
           break;
 
         case 'run_tests':
-          result = await commandTools.runTests(this.repoPath, params.command || commandTools.getConfiguredCheckCommand(this.repoPath, 'test') || 'npm test');
+          result = await commandTools.runTests(this.repoPath, params.command || commandTools.getConfiguredCheckCommand(this.repoPath, 'test'));
           break;
 
         case 'run_lint':

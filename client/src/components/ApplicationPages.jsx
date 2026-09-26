@@ -31,13 +31,12 @@ function RunDetails({ run, onOpenDiff }) {
             <span className="font-mono text-xs text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/30">
               ID: {run.id}
             </span>
-            <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-              run.status === 'COMPLETED' || run.status === 'TASK_VERIFIED'
+            <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${run.status === 'COMPLETED' || run.status === 'TASK_VERIFIED'
                 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                 : run.status === 'FAILED'
-                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
-                : 'bg-blue-500/10 text-blue-400 border border-blue-500/30 animate-pulse'
-            }`}>
+                  ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                  : 'bg-blue-500/10 text-blue-400 border border-blue-500/30 animate-pulse'
+              }`}>
               {run.status}
             </span>
           </div>
@@ -66,13 +65,12 @@ function RunDetails({ run, onOpenDiff }) {
       </dl>
 
       {/* Verification Evidence Banner */}
-      <div className={`p-4 rounded-xl border ${
-        run.verification?.verified || run.verificationStatus === 'TASK_VERIFIED'
+      <div className={`p-4 rounded-xl border ${run.verification?.verified || run.verificationStatus === 'TASK_VERIFIED'
           ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
           : run.verificationStatus === 'MODEL_NOT_CONFIGURED' || run.error?.includes('MODEL')
-          ? 'bg-amber-950/20 border-amber-500/40 text-amber-300'
-          : 'bg-slate-900 border-slate-800 text-slate-300'
-      }`}>
+            ? 'bg-amber-950/20 border-amber-500/40 text-amber-300'
+            : 'bg-slate-900 border-slate-800 text-slate-300'
+        }`}>
         <div className="text-xs font-bold uppercase tracking-wider mb-1">Verification Evidence</div>
         <p className="text-xs leading-relaxed">
           {run.verification?.summary || run.finalResult || run.error || 'No verification evidence recorded for this execution.'}
@@ -233,20 +231,18 @@ function TaskTable({ runs, selectedRunId, onSelect }) {
                 <td className="py-3 text-slate-100 font-sans font-medium max-w-[280px] truncate">{run.task}</td>
                 <td className="py-3 text-slate-300">{run.repoId || run.repository}</td>
                 <td className="py-3">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    run.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
-                    run.status === 'FAILED' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
-                    'bg-blue-500/10 text-blue-400 border border-blue-500/30'
-                  }`}>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${run.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                      run.status === 'FAILED' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
+                        'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                    }`}>
                     {run.status}
                   </span>
                 </td>
                 <td className="py-3">
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                    isVerified ? 'bg-emerald-500/10 text-emerald-400' :
-                    isModelMissing ? 'bg-amber-500/10 text-amber-400' :
-                    'bg-slate-800 text-slate-400'
-                  }`}>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isVerified ? 'bg-emerald-500/10 text-emerald-400' :
+                      isModelMissing ? 'bg-amber-500/10 text-amber-400' :
+                        'bg-slate-800 text-slate-400'
+                    }`}>
                     {isVerified ? 'VERIFIED' : isModelMissing ? 'MODEL MISSING' : run.verificationStatus || 'NOT VERIFIED'}
                   </span>
                 </td>
@@ -305,11 +301,10 @@ function RunList({ runs, selectedRunId, onSelect }) {
                     NO MODEL
                   </span>
                 )}
-                <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                  run.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
-                  run.status === 'FAILED' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
-                  'bg-blue-500/10 text-blue-400 border border-blue-500/30 animate-pulse'
-                }`}>
+                <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${run.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                    run.status === 'FAILED' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
+                      'bg-blue-500/10 text-blue-400 border border-blue-500/30 animate-pulse'
+                  }`}>
                   {run.status}
                 </span>
               </div>
@@ -602,11 +597,10 @@ export default function ApplicationPages({
             ]).map(p => (
               <div key={p.id} className="flex items-center justify-between p-2 rounded bg-slate-900/60 border border-slate-800/60">
                 <span className="text-slate-300 font-medium">{p.label || p.name}</span>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                  p.isConfigured || (p.id === 'gemini' && geminiKeyConfigured)
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${p.isConfigured || (p.id === 'gemini' && geminiKeyConfigured)
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                     : 'bg-slate-800 text-slate-500'
-                }`}>
+                  }`}>
                   {p.isConfigured || (p.id === 'gemini' && geminiKeyConfigured) ? 'CONFIGURED' : 'NOT CONFIGURED'}
                 </span>
               </div>
