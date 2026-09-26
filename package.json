@@ -1,0 +1,19 @@
+{
+  "name": "forgeloop-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ForgeLoop: Autonomous Coding Harness with Token-Efficient Self-Verification & Recovery",
+  "scripts": {
+    "start": "concurrently \"npm run start:server\" \"npm run start:client\"",
+    "start:server": "npm --prefix server start",
+    "start:client": "npm --prefix client run dev",
+    "build:client": "npm --prefix client run build",
+    "test": "npm --prefix server test",
+    "eval": "node server/cli.js",
+    "install:all": "npm install && npm --prefix server install && npm --prefix client install",
+    "setup:demos": "node server/scripts/setupDemos.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

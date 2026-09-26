@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "name": "Mechanical Keyboard",
+    "price": 120,
+    "category": "Electronics"
+  },
+  {
+    "id": 2,
+    "name": "Wireless Mouse",
+    "price": 45,
+    "category": "Electronics"
+  },
+  {
+    "id": 3,
+    "name": "4K Monitor",
+    "price": 350,
+    "category": "Electronics"
+  },
+  {
+    "id": 4,
+    "name": "Ergonomic Desk Chair",
+    "price": 290,
+    "category": "Furniture"
+  },
+  {
+    "id": 5,
+    "name": "Standing Desk",
+    "price": 480,
+    "category": "Furniture"
+  },
+  {
+    "id": 6,
+    "name": "Noise Cancelling Headphones",
+    "price": 220,
+    "category": "Electronics"
+  }
+]
