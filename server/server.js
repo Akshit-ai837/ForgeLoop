@@ -12,12 +12,12 @@ import { listFiles } from './tools/fileTools.js';
 import { getConfiguredCheckCommand } from './tools/commandTools.js';
 import { db } from './db/database.js';
 import { ModelProviderFactory } from './services/modelProvider.js';
+import { repositoryManager } from './services/repositoryManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config({ path: path.join(__dirname, '.env.local'), override: true });
-const demoBaseDir = path.resolve(__dirname, '../demo-repos');
 const localEnvPath = path.join(__dirname, '.env.local');
 
 const app = express();
@@ -380,57 +380,64 @@ app.post('/api/github/disconnect', (req, res) => {
 
 app.get('/api/repos', async (req, res) => {
   try {
-    const repos = [
-      {
-        id: 'products-api',
-        name: 'Products API',
-        path: path.join(demoBaseDir, 'products-api'),
-        description: 'Express REST API with product catalog data and route handlers.',
-      },
-      {
-        id: 'auth-service',
-        name: 'Auth Service',
-        path: path.join(demoBaseDir, 'auth-service'),
-        suggestedTask: 'Fix authentication middleware to reject expired tokens and require Bearer prefix.',
-        description: 'Authentication middleware verifying Bearer tokens and expiration timestamps.',
-      },
-      {
-        id: 'user-registration',
-        name: 'User Registration Service',
-        path: path.join(demoBaseDir, 'user-registration'),
-        description: 'User registration endpoint controller and tests.'
-      }
-    ].map(async repo => ({
-      ...repo,
-      status: await gitStatus(repo.path),
-      testCommand: getConfiguredCheckCommand(repo.path, 'test'),
-      buildCommand: getConfiguredCheckCommand(repo.path, 'build'),
-      lintCommand: getConfiguredCheckCommand(repo.path, 'lint')
-    }));
-
-    res.json({ repos: await Promise.all(repos) });
+    const repos = repositoryManager.listRepos();
+    const result = await Promise.all(
+      repos.map(async (repo) => {
+        let status = { isGitRepo: false, files: [], clean: true, raw: '' };
+        try {
+          if (repo.path && fs.existsSync(repo.path)) {
+            status = await gitStatus(repo.path);
+          }
+        } catch (_) {}
+        return {
+          ...repo,
+          status,
+          testCommand: repo.testCommand || (repo.path ? getConfiguredCheckCommand(repo.path, 'test') : null),
+          buildCommand: repo.path ? getConfiguredCheckCommand(repo.path, 'build') : null,
+          lintCommand: repo.path ? getConfiguredCheckCommand(repo.path, 'lint') : null
+        };
+      })
+    );
+    res.json({ repos: result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/repos/reset', async (req, res) => {
+app.post('/api/repos', async (req, res) => {
   try {
-    const { repoId } = req.body;
-    if (!repoId) {
-      return res.status(400).json({ error: 'A repository id is required; bulk repository reset is disabled.' });
+    const { url, name, path: localPath } = req.body || {};
+    if (url) {
+      const repo = await repositoryManager.cloneRepo(url, { name });
+      broadcastSSE('log', {
+        timeFormatted: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        message: `Cloned repository ${repo.fullName || repo.name} to workspace.`,
+        type: 'info'
+      });
+      return res.status(201).json({ repo });
     }
-    if (!['products-api', 'auth-service', 'user-registration'].includes(repoId)) {
-      return res.status(404).json({ error: `Repository not found: ${repoId}` });
+    if (localPath) {
+      const repo = repositoryManager.registerLocalPath(localPath, { name });
+      return res.status(201).json({ repo });
     }
-    const repoPath = path.join(demoBaseDir, repoId);
-    await gitReset(repoPath);
-    broadcastSSE('log', {
-      timeFormatted: new Date().toLocaleTimeString('en-US', { hour12: false }),
-      message: `${repoId} reset to its initial state.`,
-      type: 'info'
-    });
-    res.json({ success: true, message: 'Repository reset successfully.' });
+    return res.status(400).json({ error: 'Either repository url or local path is required.' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/repos/:id', (req, res) => {
+  const repo = repositoryManager.getRepo(req.params.id);
+  if (!repo) {
+    return res.status(404).json({ error: `Repository not found: ${req.params.id}` });
+  }
+  res.json({ repo });
+});
+
+app.delete('/api/repos/:id', (req, res) => {
+  try {
+    repositoryManager.deleteRepo(req.params.id);
+    res.json({ success: true, message: `Repository ${req.params.id} removed.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -550,12 +557,11 @@ const handleRunAgentRequest = async (req, res) => {
       return res.status(400).json({ error: 'A configured repository is required.' });
     }
 
-    const configuredRepos = new Map([
-      ['products-api', path.join(demoBaseDir, 'products-api')],
-      ['auth-service', path.join(demoBaseDir, 'auth-service')],
-      ['user-registration', path.join(demoBaseDir, 'user-registration')]
-    ]);
-    const resolvedPath = configuredRepos.get(targetRepo);
+    const repoRecord = repositoryManager.getRepo(targetRepo);
+    let resolvedPath = repoRecord ? repoRecord.path : null;
+    if (!resolvedPath && (targetRepo.startsWith('/') || targetRepo.startsWith('.'))) {
+      resolvedPath = path.resolve(targetRepo);
+    }
     if (!resolvedPath || !fs.existsSync(resolvedPath)) {
       return res.status(404).json({ error: `Configured repository not found: ${targetRepo}` });
     }
@@ -747,9 +753,10 @@ app.post('/api/runs', handleRunAgentRequest);
 app.post('/api/agent/benchmark', async (req, res) => {
   try {
     const { repoId, task } = req.body;
-    const resolvedPath = path.join(demoBaseDir, repoId || 'products-api');
+    const repoRecord = repositoryManager.getRepo(repoId);
+    let resolvedPath = repoRecord ? repoRecord.path : (repoId && fs.existsSync(repoId) ? path.resolve(repoId) : null);
 
-    if (!fs.existsSync(resolvedPath)) {
+    if (!resolvedPath || !fs.existsSync(resolvedPath)) {
       return res.status(404).json({ error: 'Repository not found' });
     }
 
@@ -820,7 +827,11 @@ app.post('/api/agent/benchmark', async (req, res) => {
 app.get('/api/agent/diff', async (req, res) => {
   try {
     const { repoId } = req.query;
-    const resolvedPath = path.join(demoBaseDir, repoId || 'products-api');
+    const repoRecord = repositoryManager.getRepo(repoId);
+    let resolvedPath = repoRecord ? repoRecord.path : (repoId && fs.existsSync(repoId) ? path.resolve(repoId) : null);
+    if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+      return res.json({ diff: '', status: { isGitRepo: false, files: [], clean: true, raw: '' } });
+    }
     const diff = await gitDiff(resolvedPath);
     const status = await gitStatus(resolvedPath);
     res.json({ diff, status });

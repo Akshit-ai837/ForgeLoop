@@ -393,7 +393,7 @@ export class Database {
       id: row.id,
       name: row.name,
       fullName: row.full_name,
-      path: row.path,
+      path: row.path || row.local_workspace,
       url: row.url,
       source: row.source,
       createdAt: row.created_at
@@ -408,7 +408,7 @@ export class Database {
       id: row.id,
       name: row.name,
       fullName: row.full_name,
-      path: row.path,
+      path: row.path || row.local_workspace,
       url: row.url,
       source: row.source,
       createdAt: row.created_at
@@ -418,6 +418,26 @@ export class Database {
   deleteRepository(id) {
     const stmt = this.db.prepare('DELETE FROM repositories WHERE id = ?');
     stmt.run(id);
+  }
+
+  listRepositories() {
+    try {
+      const stmt = this.db.prepare('SELECT * FROM repositories ORDER BY created_at DESC');
+      const rows = stmt.all();
+      return rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        fullName: row.full_name,
+        path: row.path || row.local_workspace,
+        url: row.url,
+        cloneUrl: row.clone_url,
+        owner: row.owner,
+        source: row.source,
+        createdAt: row.created_at
+      }));
+    } catch (_) {
+      return [];
+    }
   }
 
   getAllRuns(limit = 100) {

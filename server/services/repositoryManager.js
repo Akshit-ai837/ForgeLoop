@@ -1,6 +1,10 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from '../db/database.js';
+
+const execFileAsync = promisify(execFile);
 
 export function detectRepositoryMetadata(repoPath) {
   const pkgPath = path.join(repoPath, 'package.json');
@@ -112,6 +116,42 @@ export class RepositoryManager {
     return repo;
   }
 
+  async cloneRepo(url, metadata = {}) {
+    const parsed = this.parseGitHubUrl(url);
+    const repoDirName = `${parsed.owner}__${parsed.name}`;
+    const targetDir = path.join(this.workspaceDir, repoDirName);
+    this.assertSafeWorkspace(targetDir);
+
+    if (!fs.existsSync(this.workspaceDir)) {
+      fs.mkdirSync(this.workspaceDir, { recursive: true });
+    }
+
+    if (!fs.existsSync(targetDir)) {
+      await execFileAsync('git', ['clone', '--depth', '1', parsed.cloneUrl, targetDir]);
+    }
+
+    const repoMetadata = detectRepositoryMetadata(targetDir);
+    const id = metadata.id || `repo_${parsed.owner}_${parsed.name}`;
+    const repo = {
+      id,
+      name: parsed.name,
+      fullName: parsed.fullName,
+      owner: parsed.owner,
+      url: `https://github.com/${parsed.fullName}`,
+      cloneUrl: parsed.cloneUrl,
+      path: targetDir,
+      source: 'github',
+      testCommand: repoMetadata.testCommand || null,
+      hasTestSuite: repoMetadata.hasTestSuite,
+      createdAt: new Date().toISOString()
+    };
+
+    this.repos.set(id, repo);
+    this.repos.set(parsed.fullName, repo);
+    db.saveRepository(repo);
+    return repo;
+  }
+
   getRepo(idOrName) {
     if (this.repos.has(idOrName)) {
       return this.repos.get(idOrName);
@@ -129,6 +169,24 @@ export class RepositoryManager {
     return null;
   }
 
+  listRepos() {
+    const dbRepos = db.listRepositories();
+    for (const r of dbRepos) {
+      if (!this.repos.has(r.id)) {
+        this.repos.set(r.id, r);
+        if (r.fullName) this.repos.set(r.fullName, r);
+      }
+    }
+    const result = [];
+    const seen = new Set();
+    for (const repo of this.repos.values()) {
+      if (seen.has(repo.id)) continue;
+      seen.add(repo.id);
+      result.push(repo);
+    }
+    return result;
+  }
+
   deleteRepo(id) {
     const repo = this.getRepo(id);
     if (repo) {
@@ -142,3 +200,5 @@ export class RepositoryManager {
     return true;
   }
 }
+
+export const repositoryManager = new RepositoryManager(path.resolve(process.cwd(), 'workspace/repositories'));
