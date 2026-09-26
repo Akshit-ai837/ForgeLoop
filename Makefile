@@ -42,10 +42,10 @@ test:
 
 eval:
 	@if [ -z "$(TASK)" ]; then \
-		echo "Error: TASK parameter required. Example: make eval TASK=\"Fix auth bug\" [REPO=products-api]"; \
+		echo "Error: TASK parameter required. Example: make eval TASK=\"Fix auth bug\" [REPO=my-repo]"; \
 		exit 1; \
 	fi
-	node server/cli.js --task "$(TASK)" --repo "$(if $(REPO),$(REPO),products-api)"
+	node server/cli.js --task "$(TASK)" $(if $(REPO),--repo "$(REPO)",)
 
 clean:
 	@echo "==> Cleaning temporary artifacts..."
